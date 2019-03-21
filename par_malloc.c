@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <assert.h>
+#include <string.h>
 
 #include "xmalloc.h"
 
@@ -21,6 +22,12 @@
 const int THRESHOLD_MMAP_SIZE = 4096;
 
 #define BUCKET_NUM_BUCKETS 10
+
+// The number of longs that comprise the bitflag field in each page header
+#define PAGE_HEADER_NUM_BITFLAG_LONGS 3
+
+// The number of bytes per page 
+#define PAGE_SIZE 4096
 
 // ======================== BUCKET THRESHOLD CONSTANTS ============================== //
 
@@ -82,7 +89,8 @@ typedef struct page_header_t {
     // the mutex for this page                                                      40 bytes (!)
     pthread_mutex_t page_mutex;                             
     // the set of longs containing the bitflags for the free status of this page    16 bytes
-    long* bitflags;                 
+    // NOTE: a bit value of '0' signifies a FREE chunk; a bit value of '1' signifies an ALLOCATED chunk
+    long bitflags[PAGE_HEADER_NUM_BITFLAG_LONGS];                 
 } page_header_t;                                                //                  72 bytes (!!!)
 // percent data usable = 1 - (72 / 4096) = 98.2%
 
@@ -96,24 +104,40 @@ typedef struct data_chunk_header_t {
 // The bucket system consists of an array of long pointers
 typedef struct bucket_allocator_t {
     // the array of pointers to linked lists of pages for each size
-    long buckets[BUCKET_NUM_BUCKETS];
+    long* buckets[BUCKET_NUM_BUCKETS]; 
 } bucket_allocator_t;
 
 // ============================== GLOBAL POINTERS =================================== //
 
-// The bucket allocator pointer
-bucket_allocator_t* bucket_allocator = 0;
+// The bucket allocator
+bucket_allocator_t bucket_allocator;
 
+// a flag representing whether the allocator has been initialized
+char bucket_allocator_has_been_allocated = 0;
+
+// An array of all possible allocation sizes
 size_t BUCKET_THRESHOLD_ARRAY[BUCKET_NUM_BUCKETS] = {   
         BUCKET_LINKED_LIST_CELL,    BUCKET_EMPTY_IVEC,      BUCKET_IVEC_DATA_4,     BUCKET_NUM_TASK, 
         BUCKET_IVEC_DATA_16,        BUCKET_IVEC_DATA_32,    BUCKET_IVEC_DATA_64,    BUCKET_TASKS_DATATOP100, 
         BUCKET_IVEC_DATA_128,       BUCKET_IVEC_DATA_256 
     };
 
-// ======================================= CODE ======================================= //
+// ================================== FUNCTIONS ====================================== //
 
-// To convert the size of the allocation
-// this is one *ugly* function 
+// To ensure that the return value of a syscall signifies success
+// as taken from Prof. Tuck (CS3650 prof)
+void
+check_rv(long rv)
+{
+    if (rv == -1) {
+        perror("oops");
+        fflush(stdout);
+        fflush(stderr);
+        abort();
+    }
+}
+
+// To convert the size of the allocation 
 int sizeToBucketIndex(size_t size)
 { 
     for (int i = 0; i < BUCKET_NUM_BUCKETS; i++)
@@ -124,31 +148,6 @@ int sizeToBucketIndex(size_t size)
         }
     }
     assert(0);
-    // //switch-case it at first
-    // switch (size) {
-    //     case BUCKET_LINKED_LIST_CELL: 
-    //         return 0;
-    //     case BUCKET_EMPTY_IVEC: 
-    //         return 1;
-    //     case BUCKET_IVEC_DATA_4:
-    //         return 2;
-    //     case BUCKET_NUM_TASK:
-    //         return 3;
-    //     case BUCKET_IVEC_DATA_16:
-    //         return 4;
-    //     case BUCKET_IVEC_DATA_32:
-    //         return 5;
-    //     case BUCKET_IVEC_DATA_64:
-    //         return 6;
-    //     case BUCKET_TASKS_DATATOP100:
-    //         return 7;
-    //     case BUCKET_IVEC_DATA_128:
-    //         return 8;
-    //     case BUCKET_IVEC_DATA_256:
-    //         return 9;
-    //     default:
-    //         assert(0);
-    // }
 }
 
 // To determine if an allocation of the given size is large enough to be passed directly to mmap
@@ -160,16 +159,38 @@ int shouldDirectlyMmap(size_t size)
 // To initialize the bucket allocator upon the first xmalloc call
 int initBucketAllocator()
 {
-    // init the threshold array 
+    // init the bucket allocator itself 
+    bucket_allocator_has_been_allocated = 1;
 
     // init pages for each pointer: favor one-time overhead; instantiate many pages at first? 
     for (int i = 0; i < BUCKET_NUM_BUCKETS; i++)
     {
-        // get the size for this bucket
+        // step 1: get the size for this bucket
         size_t size = BUCKET_THRESHOLD_ARRAY[i];
-        printf("%ld\n", size);
+        // step 2: compute all required values for the page header  
+        page_header_t header;
+        // set the size for each chunk in this page as the size for this bucket
+        header.page_chunks_size = size;
+        // set the next page pointer to null
+        header.next_page = 0;
+        // set the bitflag longs to 0: nothing is allocated yet 
+        for (int i = 0; i < PAGE_HEADER_NUM_BITFLAG_LONGS; i++)
+        {
+            header.bitflags[i] = 0;
+        }
+        // initialize the mutex 
+        pthread_mutex_t mutex;
+        int rv = pthread_mutex_init(&mutex, 0);
+        check_rv(rv);
+        // step 3: allocate the page
+        long* pagePtr = mmap(0, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        // write the header to the page
+        memcpy(pagePtr, &header, sizeof(page_header_t));
+        // step 4: store the pointer to this page in the bucket table
+        bucket_allocator.buckets[i] = pagePtr;
+        // done!
     }
-    return 0;
+    return 1;
 }
 
 void*
@@ -177,7 +198,7 @@ xmalloc(size_t bytes)
 {
     // step -1: determine if the bucket system needs to be instantiated
     // this runs on the very first xmalloc call
-    if (bucket_allocator == 0)
+    if (bucket_allocator_has_been_allocated == 0)
     {
         initBucketAllocator();
     }
