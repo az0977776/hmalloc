@@ -339,3 +339,13 @@ hfree(void* item)
     addToFreeList(sizePointer);
 }
 
+void*
+hrealloc(void* prev, size_t bytes)
+{
+    size_t old_size = *((size_t*)(prev - sizeof(size_t)));
+    void* out = hmalloc(bytes);
+    memcpy(out, prev, old_size);
+    hfree(prev);
+    return out;
+}
+

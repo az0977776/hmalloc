@@ -9,20 +9,18 @@
 void*
 xmalloc(size_t bytes)
 {
-    //return opt_malloc(bytes);
-    return 0;
+    return malloc(bytes);
 }
 
 void
 xfree(void* ptr)
 {
-    //opt_free(ptr);
+    free(ptr);
 }
 
 void*
 xrealloc(void* prev, size_t bytes)
 {
-    //return opt_realloc(prev, bytes);
-    return 0;
+    return realloc(prev, bytes);
 }
 
