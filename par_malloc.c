@@ -227,7 +227,23 @@ xmalloc(size_t bytes)
 void
 xfree(void* ptr)
 {
-    //opt_free(ptr);
+    // the header of the chunk contains the pointer to the beginning of the page
+    long* chunk_start = (long*)(ptr - sizeof(long*));
+    long* page_header_start = *chunk_start;
+    page_header_t page_header = *((page_header_t*)(page_header_start));
+
+    // finds the index of of the chunk on the page
+    long chunk_index = ((long)chunk_start - ((long)page_header_start + sizeof(page_header_t))) / page_header.page_chunks_size;
+    
+
+    int bitflag_length = 2 ** sizeof(long);
+    int bitflag_number = chunk_index / bitflag_length;
+    int bitflag_index = chunk_index % bitflag_length;   
+
+    // bitwise and of the bitflag with 1*01*, setting the index bit of this chunk to 0
+    pthread_mutex_lock(page_header.page_mutex);
+    page_header.bitflags[bitflag_number] &= ~(1 << bitflag_index);
+    pthread_mutex_unlock(page_header.page_mutex);
 }
 
 void*
