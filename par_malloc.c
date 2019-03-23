@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <string.h>
+#include <math.h>
 
 #include "xmalloc.h"
 
@@ -137,9 +138,10 @@ check_rv(long rv)
     }
 }
 
-// To convert the size of the allocation 
+// To determine the index of the appropriate bucket for the given allocation
 int sizeToBucketIndex(size_t size)
 { 
+    // could binary search this if we need to since it's sorted
     for (int i = 0; i < BUCKET_NUM_BUCKETS; i++)
     {
         if (BUCKET_THRESHOLD_ARRAY[i] == size)
@@ -147,7 +149,16 @@ int sizeToBucketIndex(size_t size)
             return i;
         }
     }
-    assert(0);
+    assert(0); 
+}
+
+// To determine the index of the appropriate bucket for the given allocation
+int allocationToBucketIndex(long* data)
+{ 
+    // Get the size: 8 bytes behind the pointer
+    size_t size = *(data - sizeof(size_t));
+    // return the index
+    return sizeToBucketIndex(size);
 }
 
 // To determine if an allocation of the given size is large enough to be passed directly to mmap
@@ -176,12 +187,13 @@ int initBucketAllocator()
         // set the bitflag longs to 0: nothing is allocated yet 
         for (int i = 0; i < PAGE_HEADER_NUM_BITFLAG_LONGS; i++)
         {
-            header.bitflags[i] = 0;
+            header.bitflags[i] = 3;
         }
         // initialize the mutex 
         pthread_mutex_t mutex;
         int rv = pthread_mutex_init(&mutex, 0);
         check_rv(rv);
+        header.page_mutex = mutex;
         // step 3: allocate the page
         long* pagePtr = mmap(0, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         // write the header to the page
@@ -191,6 +203,82 @@ int initBucketAllocator()
         // done!
     }
     return 1;
+}
+
+// To determine the index of the first free chunk in memory represented by the given bitflags
+long findFirstFreeIndexInBitflags(long* flags)
+{
+    long bitsPerLong = sizeof(long) * 8;
+    // the number of longs per bitflag field is constant; iterate over each
+    for (int i = 0; i < PAGE_HEADER_NUM_BITFLAG_LONGS; i++)
+    { 
+        // get the long to consider
+        long toConsider = flags[i];
+        // proceed with this long iff it's not -1 (every bit set to 1)
+        if (toConsider != -1)
+        {
+            long ans = 0;
+            // find the first zero entry 
+            // this is NOT the most efficient way to do this but idk anything about bit twiddling
+            while (ans < bitsPerLong)
+            {
+                if ((toConsider >> ans) == 0)
+                {  
+                    // add in the indices from the longs behind this one 
+                    return (ans + (i * sizeof(long) * 8));
+                }
+                ans++;
+            }
+        }
+    }
+    // bad!
+    assert(0);
+}
+
+// To calculate the address of the chunk to allocate within the given page at the given address
+long* calculateAddressToAlloc(long* page, size_t size, long firstFreeIndex)
+{
+    long offset = 0;
+    // multiply the index by the number of bits in a byte (8)
+    offset = firstFreeIndex * 8;
+    // there are (firstFreeIndex) chunks of size (size) before this allocation
+    offset += (firstFreeIndex * size);
+    // add the header size
+    offset += sizeof(page_header_t);
+    // return the offset plus the page base address
+    return (long*) page + size;
+}
+
+// To toggle the bitflag status of the given bitflags at the given index
+void toggleBitflags(page_header_t* page_header, long* flags, long index)
+{
+    long bitflag_length = 2 << (sizeof(long) - 1);
+    long bitflag_number = index / bitflag_length;
+    long bitflag_index = index % bitflag_length; 
+    // bitwise and of the bitflag with 1*01*, setting the index bit of this chunk to 0
+    pthread_mutex_lock(&page_header->page_mutex);
+    //page_header->bitflags[bitflag_number] &= ~(1 << bitflag_index);
+    page_header->bitflags[bitflag_number] ^= 1 << bitflag_index;
+    pthread_mutex_unlock(&page_header->page_mutex);   
+}
+
+// To allocate a chunk in the given page, or to create a new page of the same allocation size if this page is full
+void* allocInPage(long* page, size_t sizeOfAllocation)
+{
+    // step 1: get the header of the page
+    page_header_t* header = (page_header_t*)page;
+    // step 2: get the bitflags
+    long* flags = header->bitflags;
+    // step 3: find the index of the first free chunk
+    long firstFreeIndex = findFirstFreeIndexInBitflags(flags);
+    // step 4: calculate the address of the memory to allocate
+    long* addressToAlloc = calculateAddressToAlloc(page, sizeOfAllocation, firstFreeIndex);
+    // step 5: write the header to the chunk
+    data_chunk_header_t* chunkHeader = (data_chunk_header_t*)addressToAlloc;
+    // write the page addres at the chunk
+    chunkHeader->page_header_address = page;
+    // step 6: change the bitflags 
+    toggleBitflags(header, flags, firstFreeIndex);  
 }
 
 void*
@@ -220,8 +308,12 @@ xmalloc(size_t bytes)
     // step 2: obtain the index of the bucket to use in the bucket list
     int bucketIndex = sizeToBucketIndex(bytes);
     // step 3: get the pointer to the page 
-
-    return 0;
+    long* firstPage = bucket_allocator.buckets[bucketIndex];
+    // step 4: allocate the data 
+    long* ptrToHeaderOfAllocData = allocInPage(firstPage, bytes);
+    // step 5: return a pointer to the data after the header 
+    long* ptrToData = ptrToHeaderOfAllocData + sizeof(data_chunk_header_t);
+    return ptrToData;
 }
 
 void
