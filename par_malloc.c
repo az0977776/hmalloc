@@ -165,7 +165,7 @@ int allocationToBucketIndex(long* data)
 }
 
 // To determine if an allocation of the given size is large enough to be passed directly to mmap
-int shouldDirectlyMmap(size_t size)
+int largerThanPage(size_t size)
 {
     return (size >= THRESHOLD_MMAP_SIZE);
 }
@@ -260,7 +260,9 @@ long* calculateAddressToAlloc(page_header_t* page, long firstFreeIndex)
     // add the header size
     offset += sizeof(page_header_t);
     // return the offset plus the page base address
-    return (long*) page + size;
+    long pageAddress = (long)page;
+    long returnAddress = pageAddress + offset;
+    return (long*)returnAddress;
 }
 
 // To toggle the bitflag status of the given bitflags at the given index
@@ -334,8 +336,9 @@ page_header_t* findFirstFreePageOfSize(size_t size)
     {
         page_header_t* previousHeader = pageHeader;
         pageHeader = pageHeader->next_page;
-        // if this is null, make a new page, locking here to prevent another thread from trying to map a new page
-        pthread_mutex_lock(&page_header->page_mutex); 
+        // if this is null, make a new page
+        // must lock here!
+        pthread_mutex_lock(&pageHeader->page_mutex);
         if (!pageHeader)
         {
             page_header_t* newPage = makeNewPage(previousHeader->page_chunks_size);
@@ -343,9 +346,9 @@ page_header_t* findFirstFreePageOfSize(size_t size)
             previousHeader->next_page = newPage;
             // return the new page
             pageHeader = newPage;
-            break;
+             break;
         }
-        pthread_mutex_unlock(&page_header->page_mutex);   
+        pthread_mutex_unlock(&pageHeader->page_mutex);
     }
     // return that page
     return pageHeader;
@@ -363,18 +366,18 @@ xmalloc(size_t bytes)
     // step 0: prepend (sizeof(size_t)) bytes onto the size
     bytes += sizeof(size_t);
     // step 1: determine if this allocation is big enough for a direct syscall allocation
-    int mmapDirectly = shouldDirectlyMmap(bytes);
+    int mmapDirectly = largerThanPage(bytes);
     // if so, do it
     if (mmapDirectly)
     {
         // retrieve the pointer to memory
         long* ptr = mmap(0, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         // write the size at the beginning
-        *ptr = bytes;
+        *(size_t*)ptr = bytes;
         // return a pointer to the memory after the size field
-        long* ptrToUserData = (long*) ((size_t*)ptr + 1);
-        return ptrToUserData;
+        return (void*) ((size_t*)ptr + 1);
     }
+    
     // step 2: get the pointer to the first free for this size allocation
     page_header_t* firstFreePage = findFirstFreePageOfSize(bytes);  
     // step 3: allocate the data 
@@ -384,9 +387,18 @@ xmalloc(size_t bytes)
     return ptrToData;
 }
 
+
+
 void
 xfree(void* ptr)
 {
+    size_t size = *((size_t*)ptr - 1);
+
+    // need to detect greater than threshhold
+    if (size > 20000) {
+        munmap(ptr - sizeof(size_t), size);
+    }
+
     // the header of the chunk contains the pointer to the beginning of the page
     long* chunk_start = (long*)(ptr - sizeof(long*));
     long* page_header_start = chunk_start;
@@ -394,7 +406,6 @@ xfree(void* ptr)
 
     // finds the index of of the chunk on the page
     long chunk_index = ((long)chunk_start - ((long)page_header_start + sizeof(page_header_t))) / page_header.page_chunks_size;
-    
 
     int bitflag_length = 1 << sizeof(long);
     int bitflag_number = chunk_index / bitflag_length;
