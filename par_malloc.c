@@ -260,8 +260,6 @@ long findFirstFreeIndexInBitflags(long* flags)
 long* calculateAddressToAlloc(page_header_t* page, long firstFreeIndex)
 {
     long offset = 0;
-    // multiply the index by the number of bits in a byte (8)
-    offset = firstFreeIndex * 8;
     // there are (firstFreeIndex) chunks of size (size) before this allocation
     size_t size = page->page_chunks_size;
     offset += (firstFreeIndex * size);
@@ -346,17 +344,19 @@ page_header_t* findFirstFreePageOfSize(size_t size)
         pageHeader = pageHeader->next_page;
         // if this is null, make a new page
         // must lock here!
-        pthread_mutex_lock(&pageHeader->page_mutex);
+        pthread_mutex_lock(&previousHeader->page_mutex);
         if (!pageHeader)
         {
             page_header_t* newPage = makeNewPage(previousHeader->page_chunks_size);
             // link this page to the previous page 
             previousHeader->next_page = newPage;
+            // free the lock
+            pthread_mutex_unlock(&previousHeader->page_mutex);
             // return the new page
             pageHeader = newPage;
-             break;
+            break;
         }
-        pthread_mutex_unlock(&pageHeader->page_mutex);
+        pthread_mutex_unlock(&previousHeader->page_mutex);
     }
     // return that page
     return pageHeader;
