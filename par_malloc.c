@@ -235,7 +235,7 @@ long findFirstFreeIndexInBitflags(long* flags)
             // this is NOT the most efficient way to do this but idk anything about bit twiddling
             while (ans < bitsPerLong)
             {
-                if ((toConsider >> ans) == 0)
+                if ((toConsider >> ans) % 2 == 0)
                 {  
                     // add in the indices from the longs behind this one 
                     return (ans + (i * sizeof(long) * 8));
@@ -270,7 +270,8 @@ void toggleBitflags(page_header_t* page_header, long index)
 {
     long bitflag_length = NUM_BITS_PER_LONG;
     long bitflag_number = index / bitflag_length;
-    long bitflag_index = index % bitflag_length; 
+    long bitflag_index = index % bitflag_length;
+ 
     // bitwise and of the bitflag with 1*01*, setting the index bit of this chunk to 0
     pthread_mutex_lock(&page_header->page_mutex); 
     page_header->bitflags[bitflag_number] ^= 1 << bitflag_index;
@@ -337,6 +338,8 @@ page_header_t* findFirstFreePageOfSize(size_t size)
         page_header_t* previousHeader = pageHeader;
         pageHeader = pageHeader->next_page;
         // if this is null, make a new page
+        // must lock here!
+        pthread_mutex_lock(&pageHeader->page_mutex);
         if (!pageHeader)
         {
             page_header_t* newPage = makeNewPage(previousHeader->page_chunks_size);
@@ -345,11 +348,12 @@ page_header_t* findFirstFreePageOfSize(size_t size)
             // return the new page
             return newPage;
         }
+        pthread_mutex_unlock(&pageHeader->page_mutex);
     }
     // return that page
     return pageHeader;
 }
-
+long fuck = 0;
 void*
 xmalloc(size_t bytes)
 {
@@ -373,6 +377,15 @@ xmalloc(size_t bytes)
         // return a pointer to the memory after the size field
         long* ptrToUserData = (long*) ((size_t*)ptr + 1);
         return ptrToUserData;
+    }
+    if (bytes == 32)
+    {
+        fuck++;
+    }
+    if (fuck == 52)
+    {
+        long a = 0;
+        (void*)a;
     }
     // step 2: get the pointer to the first free for this size allocation
     page_header_t* firstFreePage = findFirstFreePageOfSize(bytes);  
