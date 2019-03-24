@@ -111,6 +111,14 @@ typedef struct bucket_allocator_t {
     page_header_t* buckets[BUCKET_NUM_BUCKETS]; 
 } bucket_allocator_t;
 
+// A header for directly mapped pages
+typedef struct direct_map_page_t {
+    // the size of the page
+    size_t size;
+    // some thing to distinguish the directly mapped page from the allocated chunks
+    long key;
+}
+
 // ============================== GLOBAL POINTERS =================================== //
 
 // The bucket allocator
@@ -370,12 +378,13 @@ xmalloc(size_t bytes)
     // if so, do it
     if (mmapDirectly)
     {
-        // retrieve the pointer to memory
-        long* ptr = mmap(0, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+        // retrieve the pointer to memory, adding sizeof(long) to the mapping because of the key
+        direct_map_page_t* direct_page = mmap(0, bytes + sizeof(long), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
         // write the size at the beginning
-        *(size_t*)ptr = bytes;
+        direct_page->size = bytes;
+        direct_page->key = 1234567;
         // return a pointer to the memory after the size field
-        return (void*) ((size_t*)ptr + 1);
+        return ((void*)direct_page + sizeof(direct_map_page_t));
     }
     
     // step 2: get the pointer to the first free for this size allocation
@@ -392,11 +401,10 @@ xmalloc(size_t bytes)
 void
 xfree(void* ptr)
 {
-    size_t size = *((size_t*)ptr - 1);
-
-    // need to detect greater than threshhold
-    if (size > 20000) {
-        munmap(ptr - sizeof(size_t), size);
+    direct_map_page_t direct_map = *((direct_map_page_t*)(ptr - sizeof(direct_map_page_t)))
+    // check if the allocated memory is directly mapped 
+    if (direct_map.key == 1234567) {
+        munmap(&direct_map, direct_map.size);
     }
 
     // the header of the chunk contains the pointer to the beginning of the page
