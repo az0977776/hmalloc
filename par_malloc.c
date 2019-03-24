@@ -278,8 +278,7 @@ void toggleBitflags(page_header_t* page_header, long index)
     long bitflag_number = index / bitflag_length;
     long bitflag_index = index % bitflag_length; 
     // xor-ing the bitflag with 
-    pthread_mutex_lock(&page_header->page_mutex); 
-    long xorValue = 1 << bitflag_index;
+    pthread_mutex_lock(&page_header->page_mutex);  
     page_header->bitflags[bitflag_number] ^= (long)1 << bitflag_index;
     pthread_mutex_unlock(&page_header->page_mutex);   
 }
@@ -413,7 +412,7 @@ xmalloc(size_t bytes)
     // step 3: allocate the data 
     long* ptrToHeaderOfAllocData = allocInPage(firstFreePage, bytes);
     // step 4: return a pointer to the data after the header 
-    long* ptrToData = ptrToHeaderOfAllocData + sizeof(data_chunk_header_t);
+    long* ptrToData = (long*) ((long)ptrToHeaderOfAllocData + sizeof(data_chunk_header_t));
     return ptrToData;
 }
 
@@ -442,7 +441,7 @@ xfree(void* ptr)
 
     // bitwise and of the bitflag with 1*01*, setting the index bit of this chunk to 0
     pthread_mutex_lock(&page_header.page_mutex);
-    page_header.bitflags[bitflag_number] &= ~(1 << bitflag_index);
+    page_header.bitflags[bitflag_number] &= ~((long)1 << bitflag_index);
     pthread_mutex_unlock(&page_header.page_mutex);
 }
 
