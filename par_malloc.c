@@ -279,19 +279,30 @@ void toggleBitflags(page_header_t* page_header, long index)
     long bitflag_index = index % bitflag_length; 
     // xor-ing the bitflag with 
     pthread_mutex_lock(&page_header->page_mutex); 
-    page_header->bitflags[bitflag_number] ^= 1 << bitflag_index;
+    long xorValue = 1 << bitflag_index;
+    page_header->bitflags[bitflag_number] ^= (long)1 << bitflag_index;
     pthread_mutex_unlock(&page_header->page_mutex);   
 }
 
 // To allocate a chunk in the given page, or to create a new page of the same allocation size if this page is full
 void* allocInPage(page_header_t* page, size_t sizeOfAllocation)
-{ 
+{  
     // step 1: get the bitflags
     long* flags = page->bitflags;
     // step 2: find the index of the first free chunk
     long firstFreeIndex = findFirstFreeIndexInBitflags(flags);
+    if (firstFreeIndex > (4016 / page->page_chunks_size))
+    {
+        assert(0);
+    }
+    
     // step 3: calculate the address of the memory to allocate
     long* addressToAlloc = calculateAddressToAlloc(page, firstFreeIndex);
+    if ((long)addressToAlloc > (long)page + 0x1000)
+    {
+        assert(0);
+    }
+    
     // step 4: write the header to the chunk
     data_chunk_header_t* chunkHeader = (data_chunk_header_t*)addressToAlloc;
     // write the page addres at the chunk
@@ -312,17 +323,27 @@ int isSpaceInPage(page_header_t* pageHeader)
     long numChunks = usablePageSpace / chunkSize;  // round down- int division is good
     // step 3: check that number of bits
     for (int i = 0; i < numChunks; i++)
-    {
+    { 
         // get the long to check 
         long bitfieldLongToCheck = i / NUM_BITS_PER_LONG;
         // get the index within the long to check 
         long bitfieldIndex = i % NUM_BITS_PER_LONG;
         // check if the bit at that location is 0 
         long longToCheck = pageHeader->bitflags[bitfieldLongToCheck];
-        long is0 = (longToCheck >> bitfieldIndex) & 1;
+        long is0 = (longToCheck >> bitfieldIndex) & 1; 
         // if this is 0, the bit at that location is 0; there is space
         if (!is0)
         {
+            if (pageHeader->bitflags[0] == 2147483647 && pageHeader->page_chunks_size == 72)
+            {
+                long adsf = 1;
+                (void*)adsf;
+            }
+            if (pageHeader->page_chunks_size == 72)
+            {
+                long adsf = 1;
+                (void*)adsf;
+            }
             return 1;
         }
     }
