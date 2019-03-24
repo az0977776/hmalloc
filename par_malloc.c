@@ -117,7 +117,7 @@ typedef struct direct_map_page_t {
     size_t size;
     // some thing to distinguish the directly mapped page from the allocated chunks
     long key;
-}
+} direct_map_page_t;
 
 // ============================== GLOBAL POINTERS =================================== //
 
@@ -401,7 +401,7 @@ xmalloc(size_t bytes)
 void
 xfree(void* ptr)
 {
-    direct_map_page_t direct_map = *((direct_map_page_t*)(ptr - sizeof(direct_map_page_t)))
+    direct_map_page_t direct_map = *((direct_map_page_t*)(ptr - sizeof(direct_map_page_t)));
     // check if the allocated memory is directly mapped 
     if (direct_map.key == 1234567) {
         munmap(&direct_map, direct_map.size);
