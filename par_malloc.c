@@ -260,7 +260,9 @@ long* calculateAddressToAlloc(page_header_t* page, long firstFreeIndex)
     // add the header size
     offset += sizeof(page_header_t);
     // return the offset plus the page base address
-    return (long*) page + size;
+    long pageAddress = (long)page;
+    long returnAddress = pageAddress + offset;
+    return (long*)returnAddress;
 }
 
 // To toggle the bitflag status of the given bitflags at the given index
