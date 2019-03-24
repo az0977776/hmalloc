@@ -124,7 +124,7 @@ main(int argc, char* argv[])
         return 1;
     }
 
-    data_top  = atol(argv[1]);
+    data_top = atol(argv[1]);
 
     tasks = xmalloc(data_top * sizeof(num_task*));
     for (int ii = 0; ii < data_top; ++ii) {
