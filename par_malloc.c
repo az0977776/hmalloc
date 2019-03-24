@@ -236,7 +236,7 @@ xfree(void* ptr)
     long chunk_index = ((long)chunk_start - ((long)page_header_start + sizeof(page_header_t))) / page_header.page_chunks_size;
     
 
-    int bitflag_length = 2 ** sizeof(long);
+    int bitflag_length = 1 << sizeof(long);
     int bitflag_number = chunk_index / bitflag_length;
     int bitflag_index = chunk_index % bitflag_length;   
 
@@ -249,8 +249,13 @@ xfree(void* ptr)
 void*
 xrealloc(void* prev, size_t bytes)
 {
-    //return opt_realloc(prev, bytes);
-    return 0;
+    data_chunk_header_t old_chunk_header = *((data_chunk_header_t*)(prev - sizeof(data_chunk_header_t)));
+    page_header_t old_page_header = *(old_chunk_header->page_header_address);
+    int old_size = old_page_header->page_chunk_size; 
+    void* out = xmalloc(bytes);
+    memcpy(out, prev, old_size);
+    xfree(prev);
+    return out;
 }
 
 
