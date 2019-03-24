@@ -235,7 +235,7 @@ long findFirstFreeIndexInBitflags(long* flags)
             // this is NOT the most efficient way to do this but idk anything about bit twiddling
             while (ans < bitsPerLong)
             {
-                if ((toConsider >> ans) == 0)
+                if ((toConsider >> ans) % 2 == 0)
                 {  
                     // add in the indices from the longs behind this one 
                     return (ans + (i * sizeof(long) * 8));
@@ -269,7 +269,7 @@ void toggleBitflags(page_header_t* page_header, long index)
     long bitflag_length = NUM_BITS_PER_LONG;
     long bitflag_number = index / bitflag_length;
     long bitflag_index = index % bitflag_length; 
-    // bitwise and of the bitflag with 1*01*, setting the index bit of this chunk to 0
+    // xor-ing the bitflag with 
     pthread_mutex_lock(&page_header->page_mutex); 
     page_header->bitflags[bitflag_number] ^= 1 << bitflag_index;
     pthread_mutex_unlock(&page_header->page_mutex);   
@@ -324,7 +324,7 @@ int isSpaceInPage(page_header_t* pageHeader)
 
 // To return the first free page in the allocator of the given size
 page_header_t* findFirstFreePageOfSize(size_t size)
-{ 
+{
     // step 1: obtain the index of the bucket to use in the bucket list
     int bucketIndex = sizeToBucketIndex(size);
     // step 2: get the first page of that size
@@ -334,15 +334,18 @@ page_header_t* findFirstFreePageOfSize(size_t size)
     {
         page_header_t* previousHeader = pageHeader;
         pageHeader = pageHeader->next_page;
-        // if this is null, make a new page
+        // if this is null, make a new page, locking here to prevent another thread from trying to map a new page
+        pthread_mutex_lock(&page_header->page_mutex); 
         if (!pageHeader)
         {
             page_header_t* newPage = makeNewPage(previousHeader->page_chunks_size);
             // link this page to the previous page 
             previousHeader->next_page = newPage;
             // return the new page
-            return newPage;
+            pageHeader = newPage;
+            break;
         }
+        pthread_mutex_unlock(&page_header->page_mutex);   
     }
     // return that page
     return pageHeader;
