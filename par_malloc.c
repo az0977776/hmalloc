@@ -249,12 +249,13 @@ long findFirstFreeIndexInBitflags(long* flags)
 }
 
 // To calculate the address of the chunk to allocate within the given page at the given address
-long* calculateAddressToAlloc(page_header_t* page, size_t size, long firstFreeIndex)
+long* calculateAddressToAlloc(page_header_t* page, long firstFreeIndex)
 {
     long offset = 0;
     // multiply the index by the number of bits in a byte (8)
     offset = firstFreeIndex * 8;
     // there are (firstFreeIndex) chunks of size (size) before this allocation
+    size_t size = page->page_chunks_size;
     offset += (firstFreeIndex * size);
     // add the header size
     offset += sizeof(page_header_t);
@@ -263,7 +264,7 @@ long* calculateAddressToAlloc(page_header_t* page, size_t size, long firstFreeIn
 }
 
 // To toggle the bitflag status of the given bitflags at the given index
-void toggleBitflags(page_header_t* page_header, long* flags, long index)
+void toggleBitflags(page_header_t* page_header, long index)
 {
     long bitflag_length = NUM_BITS_PER_LONG;
     long bitflag_number = index / bitflag_length;
@@ -282,13 +283,13 @@ void* allocInPage(page_header_t* page, size_t sizeOfAllocation)
     // step 2: find the index of the first free chunk
     long firstFreeIndex = findFirstFreeIndexInBitflags(flags);
     // step 3: calculate the address of the memory to allocate
-    long* addressToAlloc = calculateAddressToAlloc(page, sizeOfAllocation, firstFreeIndex);
+    long* addressToAlloc = calculateAddressToAlloc(page, firstFreeIndex);
     // step 4: write the header to the chunk
     data_chunk_header_t* chunkHeader = (data_chunk_header_t*)addressToAlloc;
     // write the page addres at the chunk
     chunkHeader->page_header_address = page;
     // step 5: change the bitflags 
-    toggleBitflags(page, flags, firstFreeIndex);  
+    toggleBitflags(page, firstFreeIndex);  
     // return the chunk header pointer
     return chunkHeader;
 }
