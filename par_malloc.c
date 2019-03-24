@@ -429,9 +429,9 @@ xfree(void* ptr)
 
     // the header of the chunk contains the pointer to the beginning of the page
     long* chunk_start = (long*)(ptr - sizeof(long*));
-    long* page_header_start = chunk_start;
+    long* page_header_start = (long*)*chunk_start;
     page_header_t page_header = *((page_header_t*)(page_header_start));
-
+    page_header_t* ph = (page_header_t*) page_header_start;
     // finds the index of of the chunk on the page
     long chunk_index = ((long)chunk_start - ((long)page_header_start + sizeof(page_header_t))) / page_header.page_chunks_size;
 
