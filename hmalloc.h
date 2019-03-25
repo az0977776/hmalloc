@@ -17,6 +17,5 @@ void hprintstats();
 
 void* hmalloc(size_t size);
 void hfree(void* item);
-void* hrealloc(void* prev, size_t bytes);
 
 #endif
