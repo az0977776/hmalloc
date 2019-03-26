@@ -24,7 +24,7 @@
 #include "xmalloc.h"
 #include "ivec.h"
 
-#define THREADS 1
+#define THREADS 4
 
 typedef struct num_task {
     ivec* vals;
@@ -124,15 +124,10 @@ main(int argc, char* argv[])
         return 1;
     }
 
-    data_top = atol(argv[1]);
+    data_top  = atol(argv[1]);
 
     tasks = xmalloc(data_top * sizeof(num_task*));
     for (int ii = 0; ii < data_top; ++ii) {
-        if (ii >= 52)
-        {
-            long asdf = 0;
-            (void*)asdf;
-        }
         tasks[ii] = xmalloc(sizeof(num_task));
         ivec* xs = make_ivec(4);
         ivec_push(xs, ii);

@@ -21,6 +21,9 @@ xfree(void* ptr)
 void*
 xrealloc(void* prev, size_t bytes)
 {
-    return hrealloc(prev, bytes);
+    void* new = xmalloc(bytes);
+    memcpy(new, prev, bytes);
+    xfree(prev);
+    return new;
 }
 
