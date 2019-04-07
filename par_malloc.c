@@ -115,7 +115,7 @@ typedef struct direct_map_page_t {
 // ============================== GLOBAL POINTERS =================================== //
 
 // The bucket allocator
-bucket_allocator_t bucket_allocator;
+bucket_allocator_t bucket_allocator; 
 
 // a flag representing whether the allocator has been initialized
 char bucket_allocator_has_been_allocated = 0;
@@ -349,7 +349,6 @@ page_header_t* findFirstFreePageOfSize(size_t size)
             // free the lock
             // return the new page
             pageHeader = newPage;
-            pthread_mutex_unlock(&lock);
             break;
         }
     }
@@ -388,13 +387,13 @@ xmalloc(size_t bytes)
     // step 3: allocate the data 
     long* ptrToHeaderOfAllocData = allocInPage(firstFreePage, bytes);
     // step 4: return a pointer to the data after the header 
-    long* ptrToData = (long*) ((long)ptrToHeaderOfAllocData + sizeof(data_chunk_header_t));
+    long* ptrToData = (long*) ((long)ptrToHeaderOfAllocData + sizeof(data_chunk_header_t));  
     return ptrToData;
 }
 
     void
 xfree(void* ptr)
-{
+{   
     direct_map_page_t direct_map = *((direct_map_page_t*)(ptr - sizeof(direct_map_page_t)));
     // check if the allocated memory is directly mapped 
     if (direct_map.key == 1234567) {
@@ -414,24 +413,12 @@ xfree(void* ptr)
     pthread_mutex_unlock(&old_page_header->page_mutex);
 }
 
+
     void*
 xrealloc(void* prev, size_t bytes)
 {
-    direct_map_page_t direct_map = *((direct_map_page_t*)(prev - sizeof(direct_map_page_t)));
-    // check if the allocated memory is directly mapped 
-    if (direct_map.key == 1234567) {
-        direct_map_page_t* new = mmap(0, bytes + sizeof(direct_map_page_t), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-        memcpy(new, &direct_map, direct_map.size + sizeof(direct_map_page_t));
-        new->size = bytes;
-        munmap(&direct_map, direct_map.size + sizeof(direct_map_page_t));
-        return (void*)new + sizeof(direct_map_page_t);
-    }
-
-    data_chunk_header_t old_chunk_header = *((data_chunk_header_t*)(prev - sizeof(data_chunk_header_t)));
-    page_header_t old_page_header = *(old_chunk_header.page_header_address);
-    int old_size = old_page_header.page_chunks_size; 
     void* out = xmalloc(bytes);
-    memcpy(out, prev, old_size);
+    memcpy(out, prev, bytes);
     xfree(prev);
     return out;
 }

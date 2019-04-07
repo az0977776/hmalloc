@@ -1,0 +1,48 @@
+CCIS Server: (local environments had single core vms) 
+•   32 64-bit Intel Xeon CPUs @2.40GHz
+•   64GB RAM 
+•   Running CentOS Linux 7 (Core) 
+
+allocator | ivec  | list
+--------------------------
+par       | 0.10s | 4.7s (segfaults often with high TOP)
+--------------------------
+hw7       | 0.25s | 0.66s
+--------------------------
+sys       | 0.06s | 0.07s
+
+
+Our strategy revolved around alleviating as much lock contention as possible. We designed a global bucket 
+allocator with one bucket size per possible allocation size. The allocation sizes were calculated from the 
+test programs included were: 
+•   sizeof(tasks)
+•   sizeof(num_task)
+•   sizeof(cell)
+•   sizeof(ivec)
+•   sizeof(long[n]), where n was 4, 8, 16, etc (for xs->data)
+This allocation strategy ensured that each of the discrete number of malloc size options had its 
+own bucket, and therefore, allocations of varying sizes would never lock on each other. 
+To further reduce lock contention, the bucket system was designed to lock on pages rather than buckets. 
+If two threads tried to malloc or free data of the same size, no lock conflicts would occur unless the 
+data was on the same physical page in memory. Our bucket design also would not have to worry about coalescing
+during freeing because we keep track of which chunks on a page are filled and we can allocate between chunks
+efficiently. There was also minimal fragmentation of data for the same reason.
+An arena system was explicitly rejected in our planning stages. This is because there was no guarantee 
+that a thread would free the memory it allocated; any thread could free memory created in any other thread. 
+Making arenas that were thread-favored would not improve lock contention because of this key fact. Arenas 
+would also make coalescing free nodes in separate free lists difficult.
+The algorithmic complexity of our design was also reduced as best we could. In total, there was not a lot of 
+complexity in the design; this was due to a lot of work in speeding up page lookups. Malloc and free 
+are both O(1) but have decently large constant time overheads. 
+Most of the delay in the design was still due to lock contention, especially in the linked list case. This 
+is because nearly all allocations for the linked list were of the same size (sizeof(cell)), and therefore, 
+all four threads were always trying to access the pages of that size. Since our data was allocated 
+linearly down the page, there was a lot of contention over those pages. This could have been improved through 
+allocating more pages of that size and spreading out allocations evenly among those pages; this would 
+have led to less contention, since the design introduced page-only locking. 
+Our allocator was marginally faster than system malloc for the ivec cases for some of our test runs. 
+This shows that the design was (at least marginally) successful for vector allocations. Hooray! 
+We unfortunately were segfaulting on large inputs (when data_top = 1000). We were able to deal with these 
+inputs when the program only had a single thread, but these large inputs caused segfaults occasionally when 
+there were four threads.
+
